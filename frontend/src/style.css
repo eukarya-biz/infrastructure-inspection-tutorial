@@ -102,6 +102,13 @@ header p {
   margin: 5px 0 0;
 }
 
+.reference-photo {
+  display: block;
+  max-width: 200px;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+
 .inspect-button {
   display: block;
   width: 100%;

@@ -27,6 +27,7 @@ type AssetCollection = {
       assetType: string;
       currentCondition: string;
       lastInspectedAt: string | null;
+      referencePhotoUrl: string | null;
     };
   }>;
 };
@@ -436,6 +437,15 @@ map.on("load", async () => {
 
       name.textContent = properties.assetName;
       details.textContent = `${properties.assetId} · ${properties.currentCondition}`;
+      content.append(name, details);
+
+      if (properties.referencePhotoUrl) {
+        const referencePhoto = document.createElement("img");
+        referencePhoto.src = properties.referencePhotoUrl;
+        referencePhoto.alt = `${properties.assetName} reference photo`;
+        referencePhoto.className = "reference-photo";
+        content.append(referencePhoto);
+      }
 
       const inspectButton = document.createElement("button");
 
@@ -459,7 +469,7 @@ map.on("load", async () => {
         inspectionDialog.showModal();
       });
 
-      content.append(name, details, inspectButton);
+      content.append(inspectButton);
 
       new Popup()
         .setLngLat(feature.geometry.coordinates)

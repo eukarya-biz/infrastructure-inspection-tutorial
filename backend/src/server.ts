@@ -39,7 +39,7 @@ app.get("/api/assets", async (_request, response) => {
 
     const cmsUrl =
       `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items`;
+      `/models/${modelKey}/items?asset=true`;
 
     const cmsResponse = await fetch(cmsUrl, {
       headers: {
@@ -84,6 +84,10 @@ app.get("/api/assets", async (_request, response) => {
           return [];
         }
 
+        const referencePhoto = fields["reference-photo"] as
+          | { url?: string }
+          | null;
+
         return [
           {
             type: "Feature",
@@ -96,6 +100,7 @@ app.get("/api/assets", async (_request, response) => {
               assetType: fields["asset-type"],
               currentCondition: fields["current-condition"],
               lastInspectedAt: fields["last-inspected-at"],
+              referencePhotoUrl: referencePhoto?.url ?? null,
             },
           },
         ];
