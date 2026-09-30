@@ -1,0 +1,192 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #172033;
+  background: #f4f7fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+header {
+  min-height: 84px;
+  padding: 18px 28px;
+  color: white;
+  background: #14213d;
+}
+
+h1 {
+  margin: 0 0 5px;
+  font-size: 22px;
+}
+
+header p {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.map-container {
+  position: relative;
+}
+
+#map {
+  width: 100%;
+  height: calc(100vh - 84px);
+}
+
+.status,
+.legend {
+  position: absolute;
+  z-index: 1;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 4px 18px rgb(15 23 42 / 16%);
+}
+
+.status {
+  top: 16px;
+  left: 16px;
+}
+
+.status.success {
+  color: #166534;
+}
+
+.status.error {
+  color: #b91c1c;
+}
+
+.legend {
+  bottom: 30px;
+  left: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend i {
+  width: 12px;
+  height: 12px;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #94a3b8;
+}
+
+.manhole {
+  background: #2563eb;
+}
+
+.streetlight {
+  background: #f59e0b;
+}
+
+.traffic-sign {
+  background: #ef4444;
+}
+
+.public-bench {
+  background: #16a34a;
+}
+
+.maplibregl-popup-content p {
+  margin: 5px 0 0;
+}
+
+.inspect-button {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+}
+
+.inspect-button:hover {
+  background: #1d4ed8;
+}
+
+#inspection-dialog {
+  width: min(420px, calc(100% - 32px));
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 30%);
+}
+
+#inspection-dialog::backdrop {
+  background: rgb(15 23 42 / 55%);
+}
+
+#inspection-form {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.form-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.form-heading h2,
+.form-heading p {
+  margin: 0 0 5px;
+}
+
+#close-form {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 26px;
+}
+
+#inspection-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+#inspection-form input,
+#inspection-form select,
+#inspection-form textarea {
+  width: 100%;
+  padding: 9px;
+  font: inherit;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+.submit-button {
+  padding: 10px 14px;
+  color: white;
+  font-weight: 600;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  cursor: pointer;
+}
+
+.form-error {
+  margin: 0;
+  color: #b91c1c;
+}
+
+.submit-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
