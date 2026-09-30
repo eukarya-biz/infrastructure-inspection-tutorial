@@ -102,8 +102,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
-             <option value="urgent">Urgent</option>
-            <option value="not_applicable">Not applicable</option>
+            <option value="urgent">Urgent</option>
           </select>
         </label>
 
@@ -133,7 +132,6 @@ const normalSeverityOptions = `
   <option value="medium">Medium</option>
   <option value="high">High</option>
   <option value="urgent">Urgent</option>
-  <option value="not_applicable">Not applicable</option>
 `;
 
 issueCategory.addEventListener("change", () => {
@@ -367,6 +365,10 @@ map.on("load", async () => {
       inspectButton.textContent = "Start inspection";
 
       inspectButton.addEventListener("click", () => {
+        inspectionForm.reset();
+        severity.innerHTML = normalSeverityOptions;
+        formStatus.textContent = "";
+        formStatus.className = "";
         selectedAssetName.textContent = `${properties.assetName} (${properties.assetId})`;
 
         selectedAssetId.value = properties.assetId;
