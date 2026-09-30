@@ -88,10 +88,12 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           Issue
           <select name="issueCategory" required>
             <option value="">Select issue</option>
-            <option value="none">No issue</option>
+            <option value="no_issue">No issue</option>
             <option value="damage">Damage</option>
             <option value="obstruction">Obstruction</option>
             <option value="missing_component">Missing part</option>
+            <option value="malfunction">Malfunction</option>
+            <option value="cleaning_required">Cleaning required</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -113,14 +115,15 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         </label>
 
         <label>
-  Inspection photo (optional)
+  Inspection photos (optional)
   <input
     id="inspection-photo"
     name="photo"
     type="file"
     accept="image/*"
+    multiple
   />
-  <small>Maximum file size: 5 MB</small>
+  <small>Maximum file size: 5 MB each</small>
 </label>
 
         <p id="form-status" role="status"></p>
@@ -147,7 +150,7 @@ const normalSeverityOptions = `
 `;
 
 issueCategory.addEventListener("change", () => {
-  if (issueCategory.value === "none") {
+  if (issueCategory.value === "no_issue") {
     severity.innerHTML =
       '<option value="not_applicable">Not applicable</option>';
   } else {
@@ -222,10 +225,10 @@ inspectionForm.addEventListener("submit", async (event) => {
   formStatus.textContent = "";
 
   try {
-    const photo = inspectionPhoto.files?.[0];
+    const photos = inspectionPhoto.files ? Array.from(inspectionPhoto.files) : [];
 
-    if (photo) {
-      submitButton.textContent = "Uploading photo…";
+    for (const [index, photo] of photos.entries()) {
+      submitButton.textContent = `Uploading photo ${index + 1} of ${photos.length}…`;
 
       const uploadData = new FormData();
       uploadData.append("file", photo);
@@ -248,9 +251,6 @@ inspectionForm.addEventListener("submit", async (event) => {
       }
 
       photoIds.push(uploadResult.id);
-
-      // Give CMS time to finish registering the uploaded asset.
-      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     submitButton.textContent = "Submitting report…";
