@@ -486,7 +486,9 @@ app.patch("/api/assets/:itemId", async (request, response) => {
           {
             key: "last-inspected-at",
             type: "date",
-            value: inspectedAt || new Date().toISOString(),
+            value: inspectedAt
+              ? new Date(inspectedAt).toISOString()
+              : new Date().toISOString(),
           },
         ],
       }),
