@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
 
@@ -8,7 +7,6 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
-app.use(cors());
 app.use(express.json());
 
 const upload = multer({
@@ -18,47 +16,131 @@ const upload = multer({
   },
 });
 
+const ALLOWED_CONDITIONS = ["good", "fair", "poor", "critical"];
+
+type CmsConfig = {
+  baseUrl: string;
+  workspaceId: string;
+  projectId: string;
+  token: string;
+};
+
+function getCmsConfig(): CmsConfig | null {
+  const baseUrl = process.env.CMS_BASE_URL;
+  const workspaceId = process.env.CMS_WORKSPACE_ID;
+  const projectId = process.env.CMS_PROJECT_ID;
+  const token = process.env.CMS_INTEGRATION_TOKEN;
+
+  if (!baseUrl || !workspaceId || !projectId || !token) {
+    return null;
+  }
+
+  return { baseUrl, workspaceId, projectId, token };
+}
+
+function cmsProjectUrl(config: CmsConfig, path: string): string {
+  return `${config.baseUrl}/${config.workspaceId}/projects/${config.projectId}${path}`;
+}
+
+function cmsHeaders(
+  config: CmsConfig,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  return {
+    Authorization: `Bearer ${config.token}`,
+    Accept: "application/json",
+    ...extra,
+  };
+}
+
+async function fetchCmsText(
+  response: express.Response,
+  url: string,
+  init: RequestInit,
+  errorMessage: string,
+): Promise<string | null> {
+  const cmsResponse = await fetch(url, init);
+  const body = await cmsResponse.text();
+
+  if (!cmsResponse.ok) {
+    response.status(cmsResponse.status).json({
+      error: errorMessage,
+      details: body,
+    });
+    return null;
+  }
+
+  return body;
+}
+
+function parseCmsJson<T>(response: express.Response, body: string): T | null {
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    response.status(502).json({
+      error: "The Re:Earth CMS returned an unexpected response",
+    });
+    return null;
+  }
+}
+
+function missingEnvVars(response: express.Response) {
+  response.status(500).json({
+    error: "One or more CMS environment variables are missing",
+  });
+}
+
+function handleUpload(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction,
+) {
+  upload.single("file")(request, response, (err: unknown) => {
+    if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      response.status(400).json({
+        error: "The photo must be 5 MB or smaller",
+      });
+      return;
+    }
+
+    if (err) {
+      response.status(400).json({
+        error: "The photo could not be processed",
+      });
+      return;
+    }
+
+    next();
+  });
+}
+
 app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });
 });
 
 app.get("/api/assets", async (_request, response) => {
   try {
-    const baseUrl = process.env.CMS_BASE_URL;
-    const workspaceId = process.env.CMS_WORKSPACE_ID;
-    const projectId = process.env.CMS_PROJECT_ID;
+    const config = getCmsConfig();
     const modelKey = process.env.CMS_ASSETS_MODEL;
-    const token = process.env.CMS_INTEGRATION_TOKEN;
 
-    if (!baseUrl || !workspaceId || !projectId || !modelKey || !token) {
-      response.status(500).json({
-        error: "One or more CMS environment variables are missing",
-      });
+    if (!config || !modelKey) {
+      missingEnvVars(response);
       return;
     }
 
-    const cmsUrl =
-      `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items?asset=true`;
+    const url = cmsProjectUrl(config, `/models/${modelKey}/items?asset=true`);
+    const body = await fetchCmsText(
+      response,
+      url,
+      { headers: cmsHeaders(config) },
+      "The Re:Earth CMS request failed",
+    );
 
-    const cmsResponse = await fetch(cmsUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-    });
-
-    const responseBody = await cmsResponse.text();
-
-    if (!cmsResponse.ok) {
-      response.status(cmsResponse.status).json({
-        error: "The Re:Earth CMS request failed",
-        details: responseBody,
-      });
+    if (body === null) {
       return;
     }
 
-    const cmsData = JSON.parse(responseBody) as {
+    const cmsData = JSON.parse(body) as {
       items: Array<{
         id: string;
         fields: Array<{
@@ -95,11 +177,11 @@ app.get("/api/assets", async (_request, response) => {
             geometry,
             properties: {
               itemId: item.id,
-              assetId: fields["asset-id"],
-              assetName: fields["asset-name"],
-              assetType: fields["asset-type"],
-              currentCondition: fields["current-condition"],
-              lastInspectedAt: fields["last-inspected-at"],
+              assetId: fields["asset-id"] ?? null,
+              assetName: fields["asset-name"] ?? null,
+              assetType: fields["asset-type"] ?? null,
+              currentCondition: fields["current-condition"] ?? null,
+              lastInspectedAt: fields["last-inspected-at"] ?? null,
               referencePhotoUrl: referencePhoto?.url ?? null,
             },
           },
@@ -123,41 +205,30 @@ app.get("/api/assets", async (_request, response) => {
 
 app.get("/api/reports", async (_request, response) => {
   try {
-    const baseUrl = process.env.CMS_BASE_URL;
-    const workspaceId = process.env.CMS_WORKSPACE_ID;
-    const projectId = process.env.CMS_PROJECT_ID;
+    const config = getCmsConfig();
     const modelKey = process.env.CMS_REPORTS_MODEL;
-    const token = process.env.CMS_INTEGRATION_TOKEN;
 
-    if (!baseUrl || !workspaceId || !projectId || !modelKey || !token) {
-      response.status(500).json({
-        error: "One or more CMS environment variables are missing",
-      });
+    if (!config || !modelKey) {
+      missingEnvVars(response);
       return;
     }
 
-    const cmsUrl =
-      `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items?asset=true&sort=createdAt&dir=desc`;
+    const url = cmsProjectUrl(
+      config,
+      `/models/${modelKey}/items?asset=true&sort=createdAt&dir=desc`,
+    );
+    const body = await fetchCmsText(
+      response,
+      url,
+      { headers: cmsHeaders(config) },
+      "The Re:Earth CMS request failed",
+    );
 
-    const cmsResponse = await fetch(cmsUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
-    });
-
-    const responseBody = await cmsResponse.text();
-
-    if (!cmsResponse.ok) {
-      response.status(cmsResponse.status).json({
-        error: "The Re:Earth CMS request failed",
-        details: responseBody,
-      });
+    if (body === null) {
       return;
     }
 
-    const cmsData = JSON.parse(responseBody) as {
+    const cmsData = JSON.parse(body) as {
       items: Array<{
         id: string;
         createdAt: string;
@@ -182,14 +253,14 @@ app.get("/api/reports", async (_request, response) => {
       return {
         itemId: item.id,
         createdAt: item.createdAt,
-        assetId: fields["asset-id"],
-        assetType: fields["asset-type"],
-        inspectionDate: fields["inspection-date"],
-        condition: fields.condition,
-        issueCategory: fields["issue-category"],
-        severity: fields.severity,
+        assetId: fields["asset-id"] ?? null,
+        assetType: fields["asset-type"] ?? null,
+        inspectionDate: fields["inspection-date"] ?? null,
+        condition: fields.condition ?? null,
+        issueCategory: fields["issue-category"] ?? null,
+        severity: fields.severity ?? null,
         notes: fields.notes ?? null,
-        reportStatus: fields["report-status"],
+        reportStatus: fields["report-status"] ?? null,
         photos,
       };
     });
@@ -232,16 +303,32 @@ app.post("/api/reports", async (request, response) => {
       return;
     }
 
-    const baseUrl = process.env.CMS_BASE_URL;
-    const workspaceId = process.env.CMS_WORKSPACE_ID;
-    const projectId = process.env.CMS_PROJECT_ID;
-    const modelKey = process.env.CMS_REPORTS_MODEL;
-    const token = process.env.CMS_INTEGRATION_TOKEN;
-
-    if (!baseUrl || !workspaceId || !projectId || !modelKey || !token) {
-      response.status(500).json({
-        error: "One or more CMS environment variables are missing",
+    if (!ALLOWED_CONDITIONS.includes(condition)) {
+      response.status(400).json({
+        error: "Condition must be good, fair, poor, or critical",
       });
+      return;
+    }
+
+    if (issueCategory === "no_issue" && severity !== "not_applicable") {
+      response.status(400).json({
+        error: "Severity must be 'not_applicable' when there is no issue",
+      });
+      return;
+    }
+
+    if (issueCategory !== "no_issue" && severity === "not_applicable") {
+      response.status(400).json({
+        error: "Severity 'not_applicable' is only valid when there is no issue",
+      });
+      return;
+    }
+
+    const config = getCmsConfig();
+    const modelKey = process.env.CMS_REPORTS_MODEL;
+
+    if (!config || !modelKey) {
+      missingEnvVars(response);
       return;
     }
 
@@ -296,31 +383,29 @@ app.post("/api/reports", async (request, response) => {
       });
     }
 
-    const cmsUrl =
-      `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items`;
-
-    const cmsResponse = await fetch(cmsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
+    const url = cmsProjectUrl(config, `/models/${modelKey}/items`);
+    const body = await fetchCmsText(
+      response,
+      url,
+      {
+        method: "POST",
+        headers: cmsHeaders(config, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ fields }),
       },
-      body: JSON.stringify({ fields }),
-    });
+      "The inspection report could not be created",
+    );
 
-    const responseBody = await cmsResponse.text();
-
-    if (!cmsResponse.ok) {
-      response.status(cmsResponse.status).json({
-        error: "The inspection report could not be created",
-        details: responseBody,
-      });
+    if (body === null) {
       return;
     }
 
-    response.status(201).type("application/json").send(responseBody);
+    const parsed = parseCmsJson<{ id?: string }>(response, body);
+
+    if (parsed === null) {
+      return;
+    }
+
+    response.status(201).json(parsed);
   } catch (error) {
     console.error(error);
     response.status(500).json({
@@ -331,7 +416,7 @@ app.post("/api/reports", async (request, response) => {
 
 app.post(
   "/api/assets/upload",
-  upload.single("file"),
+  handleUpload,
   async (request, response) => {
     try {
       const file = request.file;
@@ -350,49 +435,41 @@ app.post(
         return;
       }
 
-      const baseUrl = process.env.CMS_BASE_URL;
-      const workspaceId = process.env.CMS_WORKSPACE_ID;
-      const projectId = process.env.CMS_PROJECT_ID;
-      const token = process.env.CMS_INTEGRATION_TOKEN;
+      const config = getCmsConfig();
 
-      if (!baseUrl || !workspaceId || !projectId || !token) {
-        response.status(500).json({
-          error: "One or more CMS environment variables are missing",
-        });
+      if (!config) {
+        missingEnvVars(response);
         return;
       }
 
       const formData = new FormData();
-
       const image = new Blob([new Uint8Array(file.buffer)], {
         type: file.mimetype,
       });
 
       formData.append("file", image, file.originalname);
 
-      const cmsUrl = `${baseUrl}/${workspaceId}/projects/${projectId}/assets`;
-
-      const cmsResponse = await fetch(cmsUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const url = cmsProjectUrl(config, "/assets");
+      const body = await fetchCmsText(
+        response,
+        url,
+        {
+          method: "POST",
+          headers: cmsHeaders(config),
+          body: formData,
         },
-        body: formData,
-      });
+        "The inspection photo could not be uploaded",
+      );
 
-      const responseBody = await cmsResponse.text();
-
-      if (!cmsResponse.ok) {
-        response.status(cmsResponse.status).json({
-          error: "The inspection photo could not be uploaded",
-          details: responseBody,
-        });
+      if (body === null) {
         return;
       }
 
-      const uploadedAsset = JSON.parse(responseBody) as {
-        id?: string;
-      };
+      const uploadedAsset = parseCmsJson<{ id?: string }>(response, body);
+
+      if (uploadedAsset === null) {
+        return;
+      }
 
       if (!uploadedAsset.id) {
         response.status(500).json({
@@ -417,42 +494,39 @@ app.post("/api/reports/:itemId/publish", async (request, response) => {
   try {
     const { itemId } = request.params;
 
-    const baseUrl = process.env.CMS_BASE_URL;
-    const workspaceId = process.env.CMS_WORKSPACE_ID;
-    const projectId = process.env.CMS_PROJECT_ID;
+    const config = getCmsConfig();
     const modelKey = process.env.CMS_REPORTS_MODEL;
-    const token = process.env.CMS_INTEGRATION_TOKEN;
 
-    if (!baseUrl || !workspaceId || !projectId || !modelKey || !token) {
-      response.status(500).json({
-        error: "One or more CMS environment variables are missing",
-      });
+    if (!config || !modelKey) {
+      missingEnvVars(response);
       return;
     }
 
-    const cmsUrl =
-      `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items/${itemId}/publish`;
-
-    const cmsResponse = await fetch(cmsUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+    const url = cmsProjectUrl(
+      config,
+      `/models/${modelKey}/items/${encodeURIComponent(itemId)}/publish`,
+    );
+    const body = await fetchCmsText(
+      response,
+      url,
+      {
+        method: "POST",
+        headers: cmsHeaders(config),
       },
-    });
+      "The inspection report could not be published",
+    );
 
-    const responseBody = await cmsResponse.text();
-
-    if (!cmsResponse.ok) {
-      response.status(cmsResponse.status).json({
-        error: "The inspection report could not be published",
-        details: responseBody,
-      });
+    if (body === null) {
       return;
     }
 
-    response.type("application/json").send(responseBody);
+    const parsed = parseCmsJson<Record<string, unknown>>(response, body);
+
+    if (parsed === null) {
+      return;
+    }
+
+    response.json(parsed);
   } catch (error) {
     console.error(error);
     response.status(500).json({
@@ -466,88 +540,81 @@ app.patch("/api/assets/:itemId", async (request, response) => {
     const { itemId } = request.params;
     const { condition, inspectedAt } = request.body;
 
-    const allowedConditions = ["good", "fair", "poor", "critical"];
-
-    if (!allowedConditions.includes(condition)) {
+    if (!ALLOWED_CONDITIONS.includes(condition)) {
       response.status(400).json({
         error: "Condition must be good, fair, poor, or critical",
       });
       return;
     }
 
-    const baseUrl = process.env.CMS_BASE_URL;
-    const workspaceId = process.env.CMS_WORKSPACE_ID;
-    const projectId = process.env.CMS_PROJECT_ID;
+    const config = getCmsConfig();
     const modelKey = process.env.CMS_ASSETS_MODEL;
-    const token = process.env.CMS_INTEGRATION_TOKEN;
 
-    if (!baseUrl || !workspaceId || !projectId || !modelKey || !token) {
-      response.status(500).json({
-        error: "One or more CMS environment variables are missing",
-      });
+    if (!config || !modelKey) {
+      missingEnvVars(response);
       return;
     }
 
-    const cmsUrl =
-      `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items/${itemId}`;
+    const itemUrl = cmsProjectUrl(
+      config,
+      `/models/${modelKey}/items/${encodeURIComponent(itemId)}`,
+    );
 
-    const updateResponse = await fetch(cmsUrl, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
+    const updateBody = await fetchCmsText(
+      response,
+      itemUrl,
+      {
+        method: "PATCH",
+        headers: cmsHeaders(config, { "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          fields: [
+            {
+              key: "current-condition",
+              type: "select",
+              value: condition,
+            },
+            {
+              key: "last-inspected-at",
+              type: "date",
+              // `inspectedAt` already arrives as a fully-zoned ISO string
+              // (e.g. with a +09:00 offset) — re-parsing it through `Date`
+              // and calling `.toISOString()` would convert it to UTC and
+              // shift its calendar date, so it's passed through as-is.
+              value: inspectedAt || new Date().toISOString(),
+            },
+          ],
+        }),
       },
-      body: JSON.stringify({
-        fields: [
-          {
-            key: "current-condition",
-            type: "select",
-            value: condition,
-          },
-          {
-            key: "last-inspected-at",
-            type: "date",
-            value: inspectedAt
-              ? new Date(inspectedAt).toISOString()
-              : new Date().toISOString(),
-          },
-        ],
-      }),
-    });
+      "The infrastructure asset could not be updated",
+    );
 
-    const updateBody = await updateResponse.text();
-
-    if (!updateResponse.ok) {
-      response.status(updateResponse.status).json({
-        error: "The infrastructure asset could not be updated",
-        details: updateBody,
-      });
+    if (updateBody === null) {
       return;
     }
 
     // Republish the asset so its new condition is available
     // through the Public API and Re:Earth Visualizer.
-    const publishResponse = await fetch(`${cmsUrl}/publish`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+    const publishBody = await fetchCmsText(
+      response,
+      `${itemUrl}/publish`,
+      {
+        method: "POST",
+        headers: cmsHeaders(config),
       },
-    });
+      "The asset was updated but could not be republished",
+    );
 
-    const publishBody = await publishResponse.text();
-
-    if (!publishResponse.ok) {
-      response.status(publishResponse.status).json({
-        error: "The asset was updated but could not be republished",
-        details: publishBody,
-      });
+    if (publishBody === null) {
       return;
     }
 
-    response.type("application/json").send(publishBody);
+    const parsed = parseCmsJson<Record<string, unknown>>(response, publishBody);
+
+    if (parsed === null) {
+      return;
+    }
+
+    response.json(parsed);
   } catch (error) {
     console.error(error);
     response.status(500).json({

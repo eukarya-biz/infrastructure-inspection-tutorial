@@ -11,6 +11,14 @@ import "./style.css";
 
 setWorkerUrl(workerUrl);
 
+function localDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 type AssetCollection = {
   type: "FeatureCollection";
   features: Array<{
@@ -22,10 +30,10 @@ type AssetCollection = {
     };
     properties: {
       itemId: string;
-      assetId: string;
-      assetName: string;
-      assetType: string;
-      currentCondition: string;
+      assetId: string | null;
+      assetName: string | null;
+      assetType: string | null;
+      currentCondition: string | null;
       lastInspectedAt: string | null;
       referencePhotoUrl: string | null;
     };
@@ -35,14 +43,14 @@ type AssetCollection = {
 type InspectionReport = {
   itemId: string;
   createdAt: string;
-  assetId: string;
-  assetType: string;
-  inspectionDate: string;
-  condition: string;
-  issueCategory: string;
-  severity: string;
+  assetId: string | null;
+  assetType: string | null;
+  inspectionDate: string | null;
+  condition: string | null;
+  issueCategory: string | null;
+  severity: string | null;
   notes: string | null;
-  reportStatus: string;
+  reportStatus: string | null;
   photos: string[];
 };
 
@@ -260,13 +268,17 @@ document
         card.className = "report-card";
 
         const heading = document.createElement("h3");
-        heading.textContent = `${report.assetId} · ${report.assetType}`;
+        heading.textContent = `${report.assetId ?? "—"} · ${report.assetType ?? "—"}`;
+
+        const inspectionDateLabel = report.inspectionDate
+          ? report.inspectionDate.slice(0, 10)
+          : "—";
 
         const meta = document.createElement("p");
         meta.textContent =
-          `${report.inspectionDate.slice(0, 10)} · condition: ${report.condition} · ` +
-          `issue: ${report.issueCategory} · severity: ${report.severity} · ` +
-          `status: ${report.reportStatus}`;
+          `${inspectionDateLabel} · condition: ${report.condition ?? "—"} · ` +
+          `issue: ${report.issueCategory ?? "—"} · severity: ${report.severity ?? "—"} · ` +
+          `status: ${report.reportStatus ?? "—"}`;
 
         card.append(heading, meta);
 
@@ -283,7 +295,7 @@ document
           for (const url of report.photos) {
             const image = document.createElement("img");
             image.src = url;
-            image.alt = `${report.assetId} inspection photo`;
+            image.alt = `${report.assetId ?? "Inspection"} photo`;
             photos.append(image);
           }
 
@@ -308,26 +320,13 @@ inspectionForm.addEventListener("submit", async (event) => {
   const formData = new FormData(inspectionForm);
   const value = (name: string) => String(formData.get(name) ?? "");
 
-  const photoIds: string[] = [];
-
-  const payload = {
-    assetId: value("assetId"),
-    assetType: value("assetType"),
-    location: JSON.parse(value("location")),
-    inspectionDate: value("inspectionDate"),
-    condition: value("condition"),
-    issueCategory: value("issueCategory"),
-    severity: value("severity"),
-    notes: value("notes"),
-    photoIds,
-  };
-
   submitButton.disabled = true;
   submitButton.textContent = "Submitting…";
   formStatus.textContent = "";
 
   try {
     const photos = inspectionPhoto.files ? Array.from(inspectionPhoto.files) : [];
+    const photoIds: string[] = [];
 
     for (const [index, photo] of photos.entries()) {
       submitButton.textContent = `Uploading photo ${index + 1} of ${photos.length}…`;
@@ -355,6 +354,18 @@ inspectionForm.addEventListener("submit", async (event) => {
       photoIds.push(uploadResult.id);
     }
 
+    const payload = {
+      assetId: value("assetId"),
+      assetType: value("assetType"),
+      location: JSON.parse(value("location")),
+      inspectionDate: value("inspectionDate"),
+      condition: value("condition"),
+      issueCategory: value("issueCategory"),
+      severity: value("severity"),
+      notes: value("notes"),
+      photoIds,
+    };
+
     submitButton.textContent = "Submitting report…";
     const response = await fetch("/api/reports", {
       method: "POST",
@@ -379,11 +390,26 @@ inspectionForm.addEventListener("submit", async (event) => {
       throw new Error("CMS created the report but returned no item ID");
     }
 
-    const publishResponse = await fetch(`/api/reports/${result.id}/publish`, {
-      method: "POST",
-    });
+    submitButton.textContent = "Publishing report…";
+
+    const [publishResponse, assetUpdateResponse] = await Promise.all([
+      fetch(`/api/reports/${result.id}/publish`, {
+        method: "POST",
+      }),
+      fetch(`/api/assets/${value("itemId")}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          condition: payload.condition,
+          inspectedAt: `${payload.inspectionDate}T00:00:00+09:00`,
+        }),
+      }),
+    ]);
 
     const publishResult = await publishResponse.json();
+    const assetUpdateResult = await assetUpdateResponse.json();
 
     if (!publishResponse.ok) {
       const details =
@@ -395,19 +421,6 @@ inspectionForm.addEventListener("submit", async (event) => {
         details || publishResult.error || "Unable to publish report",
       );
     }
-
-    const assetUpdateResponse = await fetch(`/api/assets/${value("itemId")}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        condition: payload.condition,
-        inspectedAt: `${payload.inspectionDate}T00:00:00+09:00`,
-      }),
-    });
-
-    const assetUpdateResult = await assetUpdateResponse.json();
 
     if (!assetUpdateResponse.ok) {
       const details =
@@ -537,13 +550,13 @@ map.on("load", async () => {
       const details = document.createElement("p");
 
       name.textContent = properties.assetName;
-      details.textContent = `${properties.assetId} · ${properties.currentCondition}`;
+      details.textContent = `${properties.assetId ?? "—"} · ${properties.currentCondition ?? "—"}`;
       content.append(name, details);
 
       if (properties.referencePhotoUrl) {
         const referencePhoto = document.createElement("img");
         referencePhoto.src = properties.referencePhotoUrl;
-        referencePhoto.alt = `${properties.assetName} reference photo`;
+        referencePhoto.alt = `${properties.assetName ?? "Reference"} photo`;
         referencePhoto.className = "reference-photo";
         content.append(referencePhoto);
       }
@@ -559,13 +572,13 @@ map.on("load", async () => {
         severity.innerHTML = normalSeverityOptions;
         formStatus.textContent = "";
         formStatus.className = "";
-        selectedAssetName.textContent = `${properties.assetName} (${properties.assetId})`;
+        selectedAssetName.textContent = `${properties.assetName ?? "—"} (${properties.assetId ?? "—"})`;
 
-        selectedAssetId.value = properties.assetId;
-        selectedAssetType.value = properties.assetType;
+        selectedAssetId.value = properties.assetId ?? "";
+        selectedAssetType.value = properties.assetType ?? "";
         selectedItemId.value = properties.itemId;
         selectedLocation.value = JSON.stringify(feature.geometry);
-        inspectionDate.value = new Date().toISOString().slice(0, 10);
+        inspectionDate.value = localDateString();
 
         inspectionDialog.showModal();
       });
