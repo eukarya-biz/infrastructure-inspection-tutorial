@@ -359,28 +359,9 @@ app.post(
         return;
       }
 
-      const publishResponse = await fetch(
-        `${cmsUrl}/${uploadedAsset.id}/publish`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
-        },
-      );
-
-      const publishBody = await publishResponse.text();
-
-      if (!publishResponse.ok) {
-        response.status(publishResponse.status).json({
-          error: "The photo was uploaded but could not be published",
-          details: publishBody,
-        });
-        return;
-      }
-
-      response.status(201).type("application/json").send(publishBody);
+      response.status(201).json({
+        id: uploadedAsset.id,
+      });
     } catch (error) {
       console.error(error);
       response.status(500).json({

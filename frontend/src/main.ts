@@ -91,7 +91,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
             <option value="none">No issue</option>
             <option value="damage">Damage</option>
             <option value="obstruction">Obstruction</option>
-            <option value="missing_part">Missing part</option>
+            <option value="missing_component">Missing part</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -111,6 +111,17 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
           Notes
           <textarea name="notes" rows="4"></textarea>
         </label>
+
+        <label>
+  Inspection photo (optional)
+  <input
+    id="inspection-photo"
+    name="photo"
+    type="file"
+    accept="image/*"
+  />
+  <small>Maximum file size: 5 MB</small>
+</label>
 
         <p id="form-status" role="status"></p>
 
@@ -153,6 +164,9 @@ const inspectionDialog =
 const inspectionForm =
   document.querySelector<HTMLFormElement>("#inspection-form")!;
 
+const inspectionPhoto =
+  document.querySelector<HTMLInputElement>("#inspection-photo")!;
+
 const selectedAssetName = document.querySelector<HTMLParagraphElement>(
   "#selected-asset-name",
 )!;
@@ -189,6 +203,8 @@ inspectionForm.addEventListener("submit", async (event) => {
   const formData = new FormData(inspectionForm);
   const value = (name: string) => String(formData.get(name) ?? "");
 
+  const photoIds: string[] = [];
+
   const payload = {
     assetId: value("assetId"),
     assetType: value("assetType"),
@@ -198,6 +214,7 @@ inspectionForm.addEventListener("submit", async (event) => {
     issueCategory: value("issueCategory"),
     severity: value("severity"),
     notes: value("notes"),
+    photoIds,
   };
 
   submitButton.disabled = true;
@@ -205,6 +222,38 @@ inspectionForm.addEventListener("submit", async (event) => {
   formStatus.textContent = "";
 
   try {
+    const photo = inspectionPhoto.files?.[0];
+
+    if (photo) {
+      submitButton.textContent = "Uploading photo…";
+
+      const uploadData = new FormData();
+      uploadData.append("file", photo);
+
+      const uploadResponse = await fetch("/api/assets/upload", {
+        method: "POST",
+        body: uploadData,
+      });
+
+      const uploadResult = await uploadResponse.json();
+
+      if (!uploadResponse.ok) {
+        throw new Error(
+          uploadResult.error || "The inspection photo could not be uploaded",
+        );
+      }
+
+      if (!uploadResult.id) {
+        throw new Error("The uploaded photo returned no asset ID");
+      }
+
+      photoIds.push(uploadResult.id);
+
+      // Give CMS time to finish registering the uploaded asset.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    submitButton.textContent = "Submitting report…";
     const response = await fetch("/api/reports", {
       method: "POST",
       headers: {
