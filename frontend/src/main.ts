@@ -66,6 +66,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <input id="selected-asset-id" name="assetId" type="hidden" />
         <input id="selected-asset-type" name="assetType" type="hidden" />
         <input id="selected-location" name="location" type="hidden" />
+        <input id="selected-item-id" name="itemId" type="hidden" />
 
         <label>
           Inspection date
@@ -163,6 +164,9 @@ const selectedAssetType = document.querySelector<HTMLInputElement>(
   "#selected-asset-type",
 )!;
 
+const selectedItemId =
+  document.querySelector<HTMLInputElement>("#selected-item-id")!;
+
 const selectedLocation =
   document.querySelector<HTMLInputElement>("#selected-location")!;
 
@@ -241,8 +245,34 @@ inspectionForm.addEventListener("submit", async (event) => {
       );
     }
 
+    const assetUpdateResponse = await fetch(`/api/assets/${value("itemId")}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        condition: payload.condition,
+        inspectedAt: `${payload.inspectionDate}T00:00:00+09:00`,
+      }),
+    });
+
+    const assetUpdateResult = await assetUpdateResponse.json();
+
+    if (!assetUpdateResponse.ok) {
+      const details =
+        typeof assetUpdateResult.details === "string"
+          ? assetUpdateResult.details
+          : JSON.stringify(assetUpdateResult.details ?? "");
+
+      throw new Error(
+        details ||
+          assetUpdateResult.error ||
+          "Report was published, but the asset could not be updated",
+      );
+    }
+
     inspectionDialog.close();
-    statusElement.textContent = `Report submitted for ${payload.assetId}`;
+    statusElement.textContent = `Report submitted and ${payload.assetId} updated`;
 
     inspectionForm.reset();
   } catch (error) {
@@ -373,6 +403,7 @@ map.on("load", async () => {
 
         selectedAssetId.value = properties.assetId;
         selectedAssetType.value = properties.assetType;
+        selectedItemId.value = properties.itemId;
         selectedLocation.value = JSON.stringify(feature.geometry);
         inspectionDate.value = new Date().toISOString().slice(0, 10);
 
