@@ -138,7 +138,7 @@ app.get("/api/reports", async (_request, response) => {
 
     const cmsUrl =
       `${baseUrl}/${workspaceId}/projects/${projectId}` +
-      `/models/${modelKey}/items`;
+      `/models/${modelKey}/items?asset=true&sort=createdAt&dir=desc`;
 
     const cmsResponse = await fetch(cmsUrl, {
       headers: {
@@ -157,7 +157,44 @@ app.get("/api/reports", async (_request, response) => {
       return;
     }
 
-    response.type("application/json").send(responseBody);
+    const cmsData = JSON.parse(responseBody) as {
+      items: Array<{
+        id: string;
+        createdAt: string;
+        fields: Array<{
+          key: string;
+          value: unknown;
+        }>;
+      }>;
+    };
+
+    const reports = cmsData.items.map((item) => {
+      const fields = Object.fromEntries(
+        item.fields.map((field) => [field.key, field.value]),
+      );
+
+      const photos = Array.isArray(fields.photos)
+        ? (fields.photos as Array<{ url?: string }>)
+            .map((photo) => photo?.url)
+            .filter((url): url is string => Boolean(url))
+        : [];
+
+      return {
+        itemId: item.id,
+        createdAt: item.createdAt,
+        assetId: fields["asset-id"],
+        assetType: fields["asset-type"],
+        inspectionDate: fields["inspection-date"],
+        condition: fields.condition,
+        issueCategory: fields["issue-category"],
+        severity: fields.severity,
+        notes: fields.notes ?? null,
+        reportStatus: fields["report-status"],
+        photos,
+      };
+    });
+
+    response.json({ reports });
   } catch (error) {
     console.error(error);
     response.status(500).json({

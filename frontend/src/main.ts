@@ -32,6 +32,20 @@ type AssetCollection = {
   }>;
 };
 
+type InspectionReport = {
+  itemId: string;
+  createdAt: string;
+  assetId: string;
+  assetType: string;
+  inspectionDate: string;
+  condition: string;
+  issueCategory: string;
+  severity: string;
+  notes: string | null;
+  reportStatus: string;
+  photos: string[];
+};
+
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <div class="app-shell">
     <header>
@@ -39,6 +53,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <h1>Public Infrastructure Inspection Map</h1>
         <p>Select an infrastructure asset to begin an inspection.</p>
       </div>
+      <button id="open-report-history" type="button">View report history</button>
     </header>
 
     <main class="map-container">
@@ -132,6 +147,14 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <button class="submit-button" type="submit">Submit report</button>
       </form>
     </dialog>
+
+    <dialog id="report-history-dialog">
+      <div class="form-heading">
+        <h2>Report history</h2>
+        <button id="close-report-history" type="button">×</button>
+      </div>
+      <div id="report-history-list"><p>Loading reports…</p></div>
+    </dialog>
   </div>
 `;
 
@@ -197,6 +220,84 @@ document
 
 const formStatus =
   document.querySelector<HTMLParagraphElement>("#form-status")!;
+
+const reportHistoryDialog = document.querySelector<HTMLDialogElement>(
+  "#report-history-dialog",
+)!;
+
+const reportHistoryList = document.querySelector<HTMLDivElement>(
+  "#report-history-list",
+)!;
+
+document
+  .querySelector<HTMLButtonElement>("#close-report-history")!
+  .addEventListener("click", () => reportHistoryDialog.close());
+
+document
+  .querySelector<HTMLButtonElement>("#open-report-history")!
+  .addEventListener("click", async () => {
+    reportHistoryDialog.showModal();
+    reportHistoryList.innerHTML = "<p>Loading reports…</p>";
+
+    try {
+      const response = await fetch("/api/reports");
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as { reports: InspectionReport[] };
+
+      if (data.reports.length === 0) {
+        reportHistoryList.innerHTML = "<p>No reports submitted yet.</p>";
+        return;
+      }
+
+      reportHistoryList.innerHTML = "";
+
+      for (const report of data.reports) {
+        const card = document.createElement("article");
+        card.className = "report-card";
+
+        const heading = document.createElement("h3");
+        heading.textContent = `${report.assetId} · ${report.assetType}`;
+
+        const meta = document.createElement("p");
+        meta.textContent =
+          `${report.inspectionDate.slice(0, 10)} · condition: ${report.condition} · ` +
+          `issue: ${report.issueCategory} · severity: ${report.severity} · ` +
+          `status: ${report.reportStatus}`;
+
+        card.append(heading, meta);
+
+        if (report.notes) {
+          const notes = document.createElement("p");
+          notes.textContent = report.notes;
+          card.append(notes);
+        }
+
+        if (report.photos.length > 0) {
+          const photos = document.createElement("div");
+          photos.className = "report-photos";
+
+          for (const url of report.photos) {
+            const image = document.createElement("img");
+            image.src = url;
+            image.alt = `${report.assetId} inspection photo`;
+            photos.append(image);
+          }
+
+          card.append(photos);
+        }
+
+        reportHistoryList.append(card);
+      }
+    } catch (error) {
+      console.error(error);
+      reportHistoryList.innerHTML =
+        "<p>Unable to load report history.</p>";
+    }
+  });
 
 const submitButton =
   document.querySelector<HTMLButtonElement>(".submit-button")!;
