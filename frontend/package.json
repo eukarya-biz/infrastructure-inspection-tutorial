@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@rolldown/binding-darwin-arm64": "^1.2.11",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   },

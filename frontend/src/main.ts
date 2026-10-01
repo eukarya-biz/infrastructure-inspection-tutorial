@@ -222,9 +222,18 @@ const selectedLocation =
 const inspectionDate =
   document.querySelector<HTMLInputElement>("#inspection-date")!;
 
+// Tracks a report that was already created in CMS but whose publish/asset-update
+// step failed, so a retry resumes instead of creating a duplicate report and
+// re-uploading its photos. Cleared on full success, on cancel, and whenever a
+// new inspection starts.
+let pendingReportId: string | null = null;
+
 document
   .querySelector<HTMLButtonElement>("#close-form")!
-  .addEventListener("click", () => inspectionDialog.close());
+  .addEventListener("click", () => {
+    pendingReportId = null;
+    inspectionDialog.close();
+  });
 
 const formStatus =
   document.querySelector<HTMLParagraphElement>("#form-status")!;
@@ -320,96 +329,97 @@ inspectionForm.addEventListener("submit", async (event) => {
   const formData = new FormData(inspectionForm);
   const value = (name: string) => String(formData.get(name) ?? "");
 
+  const assetId = value("assetId");
+  const condition = value("condition");
+  const inspectionDateValue = value("inspectionDate");
+  const itemId = value("itemId");
+
   submitButton.disabled = true;
   submitButton.textContent = "Submitting…";
   formStatus.textContent = "";
 
   try {
-    const photos = inspectionPhoto.files ? Array.from(inspectionPhoto.files) : [];
-    const photoIds: string[] = [];
+    let reportId = pendingReportId;
 
-    for (const [index, photo] of photos.entries()) {
-      submitButton.textContent = `Uploading photo ${index + 1} of ${photos.length}…`;
+    // Skip straight to publish/update on a retry — the report already exists
+    // in CMS (and its photos are already attached to it), so redoing this
+    // would create a duplicate report and re-upload the photos a second time.
+    if (!reportId) {
+      const photos = inspectionPhoto.files ? Array.from(inspectionPhoto.files) : [];
+      const photoIds: string[] = [];
 
-      const uploadData = new FormData();
-      uploadData.append("file", photo);
+      for (const [index, photo] of photos.entries()) {
+        submitButton.textContent = `Uploading photo ${index + 1} of ${photos.length}…`;
 
-      const uploadResponse = await fetch("/api/assets/upload", {
-        method: "POST",
-        body: uploadData,
-      });
+        const uploadData = new FormData();
+        uploadData.append("file", photo);
 
-      const uploadResult = await uploadResponse.json();
+        const uploadResponse = await fetch("/api/assets/upload", {
+          method: "POST",
+          body: uploadData,
+        });
 
-      if (!uploadResponse.ok) {
-        throw new Error(
-          uploadResult.error || "The inspection photo could not be uploaded",
-        );
+        const uploadResult = await uploadResponse.json();
+
+        if (!uploadResponse.ok) {
+          throw new Error(
+            uploadResult.error || "The inspection photo could not be uploaded",
+          );
+        }
+
+        if (!uploadResult.id) {
+          throw new Error("The uploaded photo returned no asset ID");
+        }
+
+        photoIds.push(uploadResult.id);
       }
 
-      if (!uploadResult.id) {
-        throw new Error("The uploaded photo returned no asset ID");
-      }
+      const payload = {
+        assetId,
+        assetType: value("assetType"),
+        location: JSON.parse(value("location")),
+        inspectionDate: inspectionDateValue,
+        condition,
+        issueCategory: value("issueCategory"),
+        severity: value("severity"),
+        notes: value("notes"),
+        photoIds,
+      };
 
-      photoIds.push(uploadResult.id);
-    }
-
-    const payload = {
-      assetId: value("assetId"),
-      assetType: value("assetType"),
-      location: JSON.parse(value("location")),
-      inspectionDate: value("inspectionDate"),
-      condition: value("condition"),
-      issueCategory: value("issueCategory"),
-      severity: value("severity"),
-      notes: value("notes"),
-      photoIds,
-    };
-
-    submitButton.textContent = "Submitting report…";
-    const response = await fetch("/api/reports", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      const details =
-        typeof result.details === "string"
-          ? result.details
-          : JSON.stringify(result.details ?? "");
-
-      throw new Error(details || result.error || "Unable to create report");
-    }
-
-    if (!result.id) {
-      throw new Error("CMS created the report but returned no item ID");
-    }
-
-    submitButton.textContent = "Publishing report…";
-
-    const [publishResponse, assetUpdateResponse] = await Promise.all([
-      fetch(`/api/reports/${result.id}/publish`, {
+      submitButton.textContent = "Submitting report…";
+      const response = await fetch("/api/reports", {
         method: "POST",
-      }),
-      fetch(`/api/assets/${value("itemId")}`, {
-        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          condition: payload.condition,
-          inspectedAt: `${payload.inspectionDate}T00:00:00+09:00`,
-        }),
-      }),
-    ]);
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const details =
+          typeof result.details === "string"
+            ? result.details
+            : JSON.stringify(result.details ?? "");
+
+        throw new Error(details || result.error || "Unable to create report");
+      }
+
+      if (!result.id) {
+        throw new Error("CMS created the report but returned no item ID");
+      }
+
+      reportId = result.id;
+      pendingReportId = reportId;
+    }
+
+    submitButton.textContent = "Publishing report…";
+    const publishResponse = await fetch(`/api/reports/${reportId}/publish`, {
+      method: "POST",
+    });
 
     const publishResult = await publishResponse.json();
-    const assetUpdateResult = await assetUpdateResponse.json();
 
     if (!publishResponse.ok) {
       const details =
@@ -421,6 +431,22 @@ inspectionForm.addEventListener("submit", async (event) => {
         details || publishResult.error || "Unable to publish report",
       );
     }
+
+    // Only update the asset once the report is actually published, so the
+    // asset can never end up reflecting a report that isn't published yet.
+    submitButton.textContent = "Updating asset…";
+    const assetUpdateResponse = await fetch(`/api/assets/${itemId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        condition,
+        inspectedAt: `${inspectionDateValue}T00:00:00+09:00`,
+      }),
+    });
+
+    const assetUpdateResult = await assetUpdateResponse.json();
 
     if (!assetUpdateResponse.ok) {
       const details =
@@ -435,8 +461,9 @@ inspectionForm.addEventListener("submit", async (event) => {
       );
     }
 
+    pendingReportId = null;
     inspectionDialog.close();
-    statusElement.textContent = `Report submitted and ${payload.assetId} updated`;
+    statusElement.textContent = `Report submitted and ${assetId} updated`;
 
     inspectionForm.reset();
   } catch (error) {
@@ -455,18 +482,21 @@ const map = new Map({
   style: {
     version: 8,
     sources: {
-      openStreetMap: {
+      reearthPapers: {
         type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        attribution: "© OpenStreetMap contributors",
+        tiles: [
+          "https://papers.reearth.land/styles/protomaps-light/tile/{z}/{x}/{y}.webp",
+        ],
+        tileSize: 512,
+        attribution:
+          '<a href="https://papers.reearth.land/attribution">Re:Earth Papers</a> · &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     },
     layers: [
       {
-        id: "openStreetMap",
+        id: "reearthPapers",
         type: "raster",
-        source: "openStreetMap",
+        source: "reearthPapers",
       },
     ],
   },
@@ -568,6 +598,7 @@ map.on("load", async () => {
       inspectButton.textContent = "Start inspection";
 
       inspectButton.addEventListener("click", () => {
+        pendingReportId = null;
         inspectionForm.reset();
         severity.innerHTML = normalSeverityOptions;
         formStatus.textContent = "";
