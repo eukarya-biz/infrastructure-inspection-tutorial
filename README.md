@@ -2,6 +2,13 @@
 
 A map-based inspection reporting app built on the Re:Earth CMS Integration API. Inspectors select an infrastructure asset (manhole, streetlight, traffic sign, or public bench) on the map and submit a condition report, with optional photos. The asset's condition and last-inspected date update automatically once a report is published.
 
+## Security note
+
+This project is built for learning the Integration API and is not hardened for
+production use. The backend has no authentication — anyone with the URL can
+create reports or modify asset data. Do not deploy this publicly without adding
+your own authentication and access control.
+
 ## Architecture
 
 - **Frontend** (`frontend/`) — Vite + TypeScript + MapLibre GL JS. Renders the map and the inspection form.
