@@ -21,6 +21,20 @@ your own authentication and access control.
 
 ## Setup
 
+### CMS project
+
+You need a Re:Earth CMS project with the `infrastructure-assets` and `inspection-reports` models (see [`backend/.env.example`](backend/.env.example) for the expected field keys), plus an Integration connected to that workspace with at least `maintainer` role — see [Creating an Integration](https://docs.reearth.io/en/developer/cms/getting-started/integration-setup/) if you don't have one yet.
+
+Once you have the Integration's token, you can either create the project and models by hand in the CMS console, or run the setup script to create the project, both models, and every field automatically via the Integration API:
+
+```bash
+cd backend
+npm install
+CMS_WORKSPACE_ID=<your workspace id> CMS_INTEGRATION_TOKEN=<your integration token> npm run setup:cms
+```
+
+The script prints the `CMS_PROJECT_ID`, `CMS_ASSETS_MODEL`, and `CMS_REPORTS_MODEL` values to put in your `.env`. The Integration API can't set a Select field's options or a Geometry Editor field's supported type, so the script also prints exactly which fields need those filled in by hand on the CMS's Schema screen afterward.
+
 ### Backend
 
 ```bash
