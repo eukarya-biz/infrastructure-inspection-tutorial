@@ -1,11 +1,12 @@
 // Creates the CMS project, both models, and every field used by this app,
 // via the Integration API — the automated alternative to Step 1's console walkthrough.
 //
-// The Integration API has no way to set a Select field's option list (verified
-// directly against the live API: a guessed `typeProperty.values` is accepted
-// but never persisted, on both create and update). So every Select field is
-// created with its type and key only, and this script prints which ones still
-// need their options filled in by hand on the CMS's Schema screen.
+// The Integration API has no way to set a Select field's option list, or a
+// Geometry Editor field's supported type. So every such field is created with
+// its type and key only, and this script prints which ones still need their
+// options or supported type filled in by hand on the CMS's Schema screen -
+// a Geometry Editor field with no supported type set shows a hard validation
+// error in the UI, not just a quietly-incomplete field.
 //
 // Usage:
 //   CMS_BASE_URL=https://api.cms.reearth.io/api \
@@ -33,6 +34,7 @@ type FieldDef = {
   required: boolean;
   multiple?: boolean;
   options?: string[]; // documented for the printed follow-up list; the API can't set these
+  geometryType?: string; // same reason — the API can't set a Geometry Editor field's supported type
 };
 
 type ModelDef = {
@@ -56,7 +58,12 @@ const MODELS: ModelDef[] = [
         required: true,
         options: ["manhole", "streetlight", "traffic_sign", "public_bench"],
       },
-      { key: "location", type: "geometryEditor", required: true },
+      {
+        key: "location",
+        type: "geometryEditor",
+        required: true,
+        geometryType: "Point",
+      },
       {
         key: "current-condition",
         type: "select",
@@ -79,7 +86,12 @@ const MODELS: ModelDef[] = [
         required: true,
         options: ["manhole", "streetlight", "traffic_sign", "public_bench"],
       },
-      { key: "location", type: "geometryEditor", required: true },
+      {
+        key: "location",
+        type: "geometryEditor",
+        required: true,
+        geometryType: "Point",
+      },
       { key: "inspection-date", type: "date", required: true },
       {
         key: "condition",
@@ -152,15 +164,27 @@ async function postJson(path: string, body: unknown) {
 }
 
 async function main() {
-  console.log(`Creating project "${projectName}" in workspace ${workspaceId}...`);
+  console.log(
+    `Creating project "${projectName}" in workspace ${workspaceId}...`,
+  );
   const project = await postJson(`/${workspaceId}/projects`, {
     name: projectName,
-    description: "Created by setup-cms.ts for the Infrastructure Inspection Map tutorial",
+    description:
+      "Created by setup-cms.ts for the Infrastructure Inspection Map tutorial",
   });
   const projectId: string = project.id;
   console.log(`  -> project id: ${projectId}`);
 
-  const needsManualOptions: { model: string; field: string; options: string[] }[] = [];
+  const needsManualOptions: {
+    model: string;
+    field: string;
+    options: string[];
+  }[] = [];
+  const needsManualGeometry: {
+    model: string;
+    field: string;
+    geometryType: string;
+  }[] = [];
 
   for (const model of MODELS) {
     console.log(`\nCreating model "${model.name}" (${model.key})...`);
@@ -190,6 +214,14 @@ async function main() {
           options: field.options,
         });
       }
+
+      if (field.geometryType) {
+        needsManualGeometry.push({
+          model: model.name,
+          field: field.key,
+          geometryType: field.geometryType,
+        });
+      }
     }
   }
 
@@ -206,6 +238,15 @@ async function main() {
   );
   for (const item of needsManualOptions) {
     console.log(`  [${item.model}] ${item.field}: ${item.options.join(" / ")}`);
+  }
+
+  console.log(
+    "\nThe Integration API also can't set a Geometry Editor field's supported type.\n" +
+      'Without it, the field shows a validation error in the CMS UI ("Please select\n' +
+      'the Support Type!") — set these on the Schema screen before using the app:',
+  );
+  for (const item of needsManualGeometry) {
+    console.log(`  [${item.model}] ${item.field}: ${item.geometryType}`);
   }
 }
 
